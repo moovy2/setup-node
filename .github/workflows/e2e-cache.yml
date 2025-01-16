@@ -10,7 +10,7 @@ on:
       - releases/*
     paths-ignore:
       - '**.md'
-      
+
 jobs:
   node-npm-depencies-caching:
     name: Test npm (Node ${{ matrix.node-version}}, ${{ matrix.os }})
@@ -18,10 +18,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        node-version: [12, 14, 16]
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-13]
+        node-version: [18, 20, 22]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Clean global cache
         run: npm cache clean --force
       - name: Setup Node
@@ -41,10 +41,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        node-version: [12, 14, 16]
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-13]
+        node-version: [18, 20, 22]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:
@@ -74,10 +74,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        node-version: [12, 14, 16]
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-13]
+        node-version: [18, 20]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Yarn version
         run: yarn --version
       - name: Generate yarn file
@@ -93,25 +93,25 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: 'yarn'
       - name: Install dependencies
-        run: yarn install
+        run: yarn install --ignore-engines
       - name: Verify node and yarn
         run: __tests__/verify-node.sh "${{ matrix.node-version }}"
         shell: bash
 
-  node-yarn2-depencies-caching:
-    name: Test yarn 2 (Node ${{ matrix.node-version}}, ${{ matrix.os }})
+  node-yarn3-depencies-caching:
+    name: Test yarn 3 (Node ${{ matrix.node-version}}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     env:
       YARN_ENABLE_IMMUTABLE_INSTALLS: false
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        node-version: [12, 14, 16]
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-13]
+        node-version: [18, 20, 22]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Update yarn
-        run: yarn set version berry
+        run: yarn set version 3.6.4
       - name: Yarn version
         run: yarn --version
       - name: Generate simple .yarnrc.yml
@@ -134,3 +134,112 @@ jobs:
       - name: Verify node and yarn
         run: __tests__/verify-node.sh "${{ matrix.node-version }}"
         shell: bash
+
+  yarn-subprojects:
+    name: Test yarn subprojects
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: prepare sub-projects
+        run: __tests__/prepare-yarn-subprojects.sh yarn1
+
+      # expect
+      #  - no errors
+      #  - log
+      #    ##[debug]Cache Paths:
+      #    ##[debug]["sub2/.yarn/cache","sub3/.yarn/cache","../../../.cache/yarn/v6"]
+      - name: Setup Node
+        uses: ./
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'yarn'
+          cache-dependency-path: |
+            **/*.lock
+            yarn.lock
+
+  yarn-subprojects-berry-local:
+    name: Test yarn subprojects all locally managed
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: prepare sub-projects
+        run: __tests__/prepare-yarn-subprojects.sh keepcache keepcache
+
+      # expect
+      #  - no errors
+      #  - log
+      #    ##[info]All dependencies are managed locally by yarn3, the previous cache can be used
+      #    ##[debug]["node-cache-Linux-yarn-401024703386272f1a950c9f014cbb1bb79a7a5b6e1fb00e8b90d06734af41ee","node-cache-Linux-yarn"]
+      - name: Setup Node
+        uses: ./
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'yarn'
+          cache-dependency-path: |
+            sub2/*.lock
+            sub3/*.lock
+
+  yarn-subprojects-berry-global:
+    name: Test yarn subprojects some locally managed
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: prepare sub-projects
+        run: __tests__/prepare-yarn-subprojects.sh global
+
+      # expect
+      #  - no errors
+      #  - log must
+      #    ##[debug]"/home/runner/work/setup-node-test/setup-node-test/sub2" dependencies are managed by yarn 3 locally
+      #    ##[debug]"/home/runner/work/setup-node-test/setup-node-test/sub3" dependencies are not managed by yarn 3 locally
+      - name: Setup Node
+        uses: ./
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'yarn'
+          cache-dependency-path: |
+            sub2/*.lock
+            sub3/*.lock
+
+  yarn-subprojects-berry-git:
+    name: Test yarn subprojects managed by git
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: prepare sub-projects
+        run: /bin/bash __tests__/prepare-yarn-subprojects.sh keepcache
+
+      # expect
+      #  - no errors
+      #  - log
+      #    [debug]"/home/runner/work/setup-node-test/setup-node-test/sub2" has .yarn/cache - dependencies are kept in the repository
+      #    [debug]"/home/runner/work/setup-node-test/setup-node-test/sub3" has .yarn/cache - dependencies are kept in the repository
+      #    [debug]["node-cache-Linux-yarn-401024703386272f1a950c9f014cbb1bb79a7a5b6e1fb00e8b90d06734af41ee"]
+      - name: Setup Node
+        uses: ./
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'yarn'
+          cache-dependency-path: |
+            sub2/*.lock
+            sub3/*.lock

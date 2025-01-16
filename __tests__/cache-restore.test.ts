@@ -2,6 +2,7 @@ import * as core from '@actions/core';
 import * as cache from '@actions/cache';
 import * as path from 'path';
 import * as glob from '@actions/glob';
+import osm from 'os';
 
 import * as utils from '../src/cache-utils';
 import {restoreCache} from '../src/cache-restore';
@@ -12,6 +13,7 @@ describe('cache-restore', () => {
     process.env.RUNNER_OS = 'Linux';
   }
   const platform = process.env.RUNNER_OS;
+  const arch = 'arm64';
   const commonPath = '/some/random/path';
   const npmCachePath = `${commonPath}/npm`;
   const pnpmCachePath = `${commonPath}/pnpm`;
@@ -32,13 +34,13 @@ describe('cache-restore', () => {
 
   function findCacheFolder(command: string) {
     switch (command) {
-      case utils.supportedPackageManagers.npm.getCacheFolderCommand:
+      case 'npm config get cache':
         return npmCachePath;
-      case utils.supportedPackageManagers.pnpm.getCacheFolderCommand:
+      case 'pnpm store path --silent':
         return pnpmCachePath;
-      case utils.supportedPackageManagers.yarn1.getCacheFolderCommand:
+      case 'yarn cache dir':
         return yarn1CachePath;
-      case utils.supportedPackageManagers.yarn2.getCacheFolderCommand:
+      case 'yarn config get cacheFolder':
         return yarn2CachePath;
       default:
         return 'packge/not/found';
@@ -52,6 +54,7 @@ describe('cache-restore', () => {
   let getCommandOutputSpy: jest.SpyInstance;
   let restoreCacheSpy: jest.SpyInstance;
   let hashFilesSpy: jest.SpyInstance;
+  let archSpy: jest.SpyInstance;
 
   beforeEach(() => {
     // core
@@ -102,13 +105,17 @@ describe('cache-restore', () => {
 
     // cache-utils
     getCommandOutputSpy = jest.spyOn(utils, 'getCommandOutput');
+
+    // os
+    archSpy = jest.spyOn(osm, 'arch');
+    archSpy.mockImplementation(() => arch);
   });
 
   describe('Validate provided package manager', () => {
     it.each([['npm7'], ['npm6'], ['pnpm6'], ['yarn1'], ['yarn2'], ['random']])(
       'Throw an error because %s is not supported',
       async packageManager => {
-        await expect(restoreCache(packageManager)).rejects.toThrowError(
+        await expect(restoreCache(packageManager, '')).rejects.toThrow(
           `Caching for '${packageManager}' is not supported`
         );
       }
@@ -132,10 +139,10 @@ describe('cache-restore', () => {
           }
         });
 
-        await restoreCache(packageManager);
+        await restoreCache(packageManager, '');
         expect(hashFilesSpy).toHaveBeenCalled();
         expect(infoSpy).toHaveBeenCalledWith(
-          `Cache restored from key: node-cache-${platform}-${packageManager}-${fileHash}`
+          `Cache restored from key: node-cache-${platform}-${arch}-${packageManager}-${fileHash}`
         );
         expect(infoSpy).not.toHaveBeenCalledWith(
           `${packageManager} cache is not found`
@@ -163,7 +170,7 @@ describe('cache-restore', () => {
         });
 
         restoreCacheSpy.mockImplementationOnce(() => undefined);
-        await restoreCache(packageManager);
+        await restoreCache(packageManager, '');
         expect(hashFilesSpy).toHaveBeenCalled();
         expect(infoSpy).toHaveBeenCalledWith(
           `${packageManager} cache is not found`
